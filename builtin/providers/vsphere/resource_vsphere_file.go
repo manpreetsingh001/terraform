@@ -3,12 +3,10 @@ package vsphere
 import (
 	"fmt"
 	"log"
-
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/vim25/soap"
 	"golang.org/x/net/context"
 )
 
@@ -58,6 +56,9 @@ func resourceVSphereFileCreate(d *schema.ResourceData, meta interface{}) error {
 	log.Printf("[DEBUG] creating file: %#v", d)
 	client := meta.(*govmomi.Client)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	f := file{}
 
 	if v, ok := d.GetOk("datacenter"); ok {
@@ -82,7 +83,7 @@ func resourceVSphereFileCreate(d *schema.ResourceData, meta interface{}) error {
 		return fmt.Errorf("destination_file argument is required")
 	}
 
-	err := createFile(client, &f)
+	err := createFile(ctx, client, &f)
 	if err != nil {
 		return err
 	}
@@ -93,28 +94,22 @@ func resourceVSphereFileCreate(d *schema.ResourceData, meta interface{}) error {
 	return resourceVSphereFileRead(d, meta)
 }
 
-func createFile(client *govmomi.Client, f *file) error {
+func createFile(ctx context.Context, client *govmomi.Client, f *file) error {
 
 	finder := find.NewFinder(client.Client, true)
 
-	dc, err := finder.Datacenter(context.TODO(), f.datacenter)
+	dc, err := finder.Datacenter(ctx, f.datacenter)
 	if err != nil {
 		return fmt.Errorf("error %s", err)
 	}
 	finder = finder.SetDatacenter(dc)
 
-	ds, err := getDatastore(finder, f.datastore)
+	ds, err := getDatastore(ctx, finder, f.datastore)
 	if err != nil {
 		return fmt.Errorf("error %s", err)
 	}
 
-	dsurl, err := ds.URL(context.TODO(), dc, f.destinationFile)
-	if err != nil {
-		return err
-	}
-
-	p := soap.DefaultUpload
-	err = client.Client.UploadFile(f.sourceFile, dsurl, &p)
+	err = ds.UploadFile(ctx, f.sourceFile, f.destinationFile, nil)
 	if err != nil {
 		return fmt.Errorf("error %s", err)
 	}
@@ -124,6 +119,11 @@ func createFile(client *govmomi.Client, f *file) error {
 func resourceVSphereFileRead(d *schema.ResourceData, meta interface{}) error {
 
 	log.Printf("[DEBUG] reading file: %#v", d)
+	client := meta.(*govmomi.Client)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	f := file{}
 
 	if v, ok := d.GetOk("datacenter"); ok {
@@ -148,21 +148,21 @@ func resourceVSphereFileRead(d *schema.ResourceData, meta interface{}) error {
 		return fmt.Errorf("destination_file argument is required")
 	}
 
-	client := meta.(*govmomi.Client)
+
 	finder := find.NewFinder(client.Client, true)
 
-	dc, err := finder.Datacenter(context.TODO(), f.datacenter)
+	dc, err := finder.Datacenter(ctx, f.datacenter)
 	if err != nil {
 		return fmt.Errorf("error %s", err)
 	}
 	finder = finder.SetDatacenter(dc)
 
-	ds, err := getDatastore(finder, f.datastore)
+	ds, err := getDatastore(ctx, finder, f.datastore)
 	if err != nil {
 		return fmt.Errorf("error %s", err)
 	}
 
-	_, err = ds.Stat(context.TODO(), f.destinationFile)
+	_, err = ds.Stat(ctx, f.destinationFile)
 	if err != nil {
 		d.SetId("")
 		return err
@@ -201,6 +201,9 @@ func resourceVSphereFileUpdate(d *schema.ResourceData, meta interface{}) error {
 		}
 
 		client := meta.(*govmomi.Client)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		dc, err := getDatacenter(client, f.datacenter)
 		if err != nil {
 			return err
@@ -209,18 +212,18 @@ func resourceVSphereFileUpdate(d *schema.ResourceData, meta interface{}) error {
 		finder := find.NewFinder(client.Client, true)
 		finder = finder.SetDatacenter(dc)
 
-		ds, err := getDatastore(finder, f.datastore)
+		ds, err := getDatastore(ctx, finder, f.datastore)
 		if err != nil {
 			return fmt.Errorf("error %s", err)
 		}
 
 		fm := object.NewFileManager(client.Client)
-		task, err := fm.MoveDatastoreFile(context.TODO(), ds.Path(oldDestinationFile.(string)), dc, ds.Path(newDestinationFile.(string)), dc, true)
+		task, err := fm.MoveDatastoreFile(ctx, ds.Path(oldDestinationFile.(string)), dc, ds.Path(newDestinationFile.(string)), dc, true)
 		if err != nil {
 			return err
 		}
 
-		_, err = task.WaitForResult(context.TODO(), nil)
+		_, err = task.WaitForResult(ctx, nil)
 		if err != nil {
 			return err
 		}
@@ -233,6 +236,12 @@ func resourceVSphereFileUpdate(d *schema.ResourceData, meta interface{}) error {
 func resourceVSphereFileDelete(d *schema.ResourceData, meta interface{}) error {
 
 	log.Printf("[DEBUG] deleting file: %#v", d)
+	client := meta.(*govmomi.Client)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+
 	f := file{}
 
 	if v, ok := d.GetOk("datacenter"); ok {
@@ -257,9 +266,9 @@ func resourceVSphereFileDelete(d *schema.ResourceData, meta interface{}) error {
 		return fmt.Errorf("destination_file argument is required")
 	}
 
-	client := meta.(*govmomi.Client)
 
-	err := deleteFile(client, &f)
+
+	err := deleteFile(ctx,client, &f)
 	if err != nil {
 		return err
 	}
@@ -268,7 +277,7 @@ func resourceVSphereFileDelete(d *schema.ResourceData, meta interface{}) error {
 	return nil
 }
 
-func deleteFile(client *govmomi.Client, f *file) error {
+func deleteFile(ctx context.Context, client *govmomi.Client, f *file) error {
 
 	dc, err := getDatacenter(client, f.datacenter)
 	if err != nil {
@@ -278,18 +287,18 @@ func deleteFile(client *govmomi.Client, f *file) error {
 	finder := find.NewFinder(client.Client, true)
 	finder = finder.SetDatacenter(dc)
 
-	ds, err := getDatastore(finder, f.datastore)
+	ds, err := getDatastore(ctx, finder, f.datastore)
 	if err != nil {
 		return fmt.Errorf("error %s", err)
 	}
 
 	fm := object.NewFileManager(client.Client)
-	task, err := fm.DeleteDatastoreFile(context.TODO(), ds.Path(f.destinationFile), dc)
+	task, err := fm.DeleteDatastoreFile(ctx, ds.Path(f.destinationFile), dc)
 	if err != nil {
 		return err
 	}
 
-	_, err = task.WaitForResult(context.TODO(), nil)
+	_, err = task.WaitForResult(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -297,13 +306,13 @@ func deleteFile(client *govmomi.Client, f *file) error {
 }
 
 // getDatastore gets datastore object
-func getDatastore(f *find.Finder, ds string) (*object.Datastore, error) {
+func getDatastore(ctx context.Context, f *find.Finder, ds string ) (*object.Datastore, error) {
 
 	if ds != "" {
-		dso, err := f.Datastore(context.TODO(), ds)
+		dso, err := f.Datastore(ctx, ds)
 		return dso, err
 	} else {
-		dso, err := f.DefaultDatastore(context.TODO())
+		dso, err := f.DefaultDatastore(ctx)
 		return dso, err
 	}
 }
