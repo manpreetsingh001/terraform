@@ -116,7 +116,8 @@ func TestAccVSphereFile_renamePostCreation(t *testing.T) {
 func testAccCheckVSphereFileDestroy(s *terraform.State) error {
 	client := testAccProvider.Meta().(*govmomi.Client)
 	finder := find.NewFinder(client.Client, true)
-
+        ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for _, rs := range s.RootModule().Resources {
 		if rs.Type != "vsphere_file" {
 			continue
@@ -129,7 +130,7 @@ func testAccCheckVSphereFileDestroy(s *terraform.State) error {
 
 		finder = finder.SetDatacenter(dc)
 
-		ds, err := getDatastore(finder, rs.Primary.Attributes["datastore"])
+		ds, err := getDatastore(ctx,finder, rs.Primary.Attributes["datastore"])
 		if err != nil {
 			return fmt.Errorf("error %s", err)
 		}
@@ -154,6 +155,9 @@ func testAccCheckVSphereFileDestroy(s *terraform.State) error {
 func testAccCheckVSphereFileExists(n string, df string, exists bool) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
+                ctx, cancel := context.WithCancel(context.Background())
+	        defer cancel()
+
 		if !ok {
 			return fmt.Errorf("Resource not found: %s", n)
 		}
@@ -171,7 +175,7 @@ func testAccCheckVSphereFileExists(n string, df string, exists bool) resource.Te
 		}
 		finder = finder.SetDatacenter(dc)
 
-		ds, err := getDatastore(finder, rs.Primary.Attributes["datastore"])
+		ds, err := getDatastore(ctx, finder, rs.Primary.Attributes["datastore"])
 		if err != nil {
 			return fmt.Errorf("error %s", err)
 		}
