@@ -214,7 +214,7 @@ func resourceVSphereFileUpdate(d *schema.ResourceData, meta interface{}) error {
 
 		ds, err := getDatastore(ctx, finder, f.datastore)
 		if err != nil {
-			return fmt.Errorf("error %s", err)
+			return fmt.Errorf("error uploading file: %s", err)
 		}
 
 		fm := object.NewFileManager(client.Client)
@@ -268,7 +268,7 @@ func resourceVSphereFileDelete(d *schema.ResourceData, meta interface{}) error {
 
 
 
-	err := deleteFile(ctx,client, &f)
+	err := deleteFile(ctx, client, &f)
 	if err != nil {
 		return err
 	}
